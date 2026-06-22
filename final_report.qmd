@@ -1,0 +1,524 @@
+---
+title: "Sports Analytics Senior Capstone"
+format: html
+editor: visual
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 4,
+  fig.height = 3
+)
+```
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(vip)
+
+data = read_csv("~/Downloads/nhldraft.csv")
+```
+
+## Abstract
+
+This research project will examine how NHL teams have performed in the draft over time by analyzing the relationship between draft position and career outcomes, evaluate whether teams are gaining more or less value from their picks across eras, and identify which franchises consistently outperform expectations. Using a dataset of 12,250 drafted players with complete career statistics available through 2015, the analysis begins with exploratory data work showing a strong negative relationship between draft position and performance, substantial variability among early‑round selections, and long‑term positional trends favoring centers and defensemen. To study changes across eras, players were categorized into the Expansion Era (1963–1993), Dead Puck Era (1994–2004), and Modern Era (2005–2015).
+
+For the analysis, a multiple regression model reveals that earlier picks consistently produce higher point totals in all eras, with the Expansion Era showing the steepest decline in performance as draft position increased. Although the model’s R‑squared is low, all predictors were statistically significant, indicating meaningful differences across eras. To evaluate whether teams are gaining more or less value from their draft slots over time, a random forest model is used to estimate expected career points for each player, and residual performance was analyzed across eras. The results show a downward trend in performance relative to expectations, though sensitivity analysis revealed that this pattern was heavily influenced by extreme outliers, such as generational superstars or players with little to no playing, and was not statistically significant once those outliers were removed. Finally, team‑level performance is assessed by comparing actual and predicted outcomes. The Detroit Red Wings, Ottawa Senators, and San Jose Sharks showed to be the most efficient drafting teams over the years, consistently selecting players who exceed expectations, while the Cleveland Barons, Oakland Seals, and Arizona Coyotes ranked among the least efficient overall. Additional diagnostics and sensitivity analyses are performed to confirm that the main conclusions were robust to changes in model specifications for the random forest model.
+
+Overall, the findings of this project suggest that overall draft position remains the strongest predictor of NHL career success, era‑based differences are prevalent but not totally significant, and certain franchises have historically dominated in performance and show superior draft efficiency.
+
+## Introduction
+
+For this research project, the dataset was taken from Kaggle, titled "NHL Draft Hockey Player Data (1963-2022)." This dataset contains NHL draft and player performance data for players that were drafted from 1963-2022. Some variables pertaining to the draft are draft year, overall pick number, and team drafted to. Also, the dataset includes columns that provide player statistics, such as wins, points, penalty minutes, goals, plus/minus, and save percentage (for goaltenders). Based off the given data, the motivation behind this project is to analyze the efficiency of NHL teams and success from the draft for the duration of their time in the league, as well as player performance and how it relates to their draft pick position.
+
+### Research Questions:
+
+1.  How has the relationship between draft position and a player's performance changed across eras?
+
+2.  Are teams getting more or less value from their picks over time relative to the expected performance at each draft slot?
+
+3.  Which teams consistently draft players who outperform their expected value based on draft pick?
+
+### Overview of Dataset
+
+The dataset used in this project includes a wide range of NHL player statistics collected across multiple seasons. It contains basic information like player age, games played, and time on ice, along with scoring stats such as goals, assists, and total points. There are also several performance‑related variables that help show how active or effective a player was during the season. Because the dataset includes players with very different roles, skill levels, and amounts of ice time, the values vary a lot from one player to another. This mix of high‑performing players, average players, and those with limited minutes makes the dataset useful for exploring patterns and running models that try to explain or predict performance. Overall, the dataset provides enough detail and variation to support meaningful analysis without being overly complicated.
+
+## Methods
+
+### Dataset Description
+
+As stated above, this dataset contains draft statistics for players drafted from 1963 to 2022. The dataset consists of 23 variables and 12,250 observations. Here is a list of the variables that are important to this analysis and a description of what they are:
+
+1.  **year:** the year that a player was drafted
+
+2.  **overall_pick:** the pick number for the player drafted overall for the draft their year
+
+3.  **team:** the team that the player was drafted to
+
+4.  **position:** the player's position on the team
+
+5.  **goals:** the total number of goals that player scored in their career
+
+6.  **assists:** the total number of assists that player had in their career
+
+7.  **points:** the total number of points that player had in their career
+
+### Data Preperation and Cleaning
+
+Before starting the analysis on this dataset, some cleaning of the data needed to be done. To start, since the dataset reports on the career totals of the players drafted, the players that are still active in the league and have not concluded their career are reported as NA in the most columns. Therefore, to account for this, the data was filtered to only include observations before 2015 to get a more accurate understanding for completed seasons.
+
+In continuation, since two of the three research questions require an analysis of changes over time, the data must be split up by the time period or era that a player was drafted. For this dataset, this is a list of the eras and how they are decided by the NHL:
+
+1.  **Expansion Era (1963-1993):** This era was when the original six team league was first doubled to 12 teams in 1967 and then growing to 24 teams by 1993.
+
+2.  **Dead Puck Era (1994-2004):** During this era, the league saw a decrease in scoring and a more physical and defensive style of play. At the end of this era, the two-line pass rule was removed as a result of the lower amount of goals being scored.
+
+3.  **Salary Cap/Modern Era (2005-Present):** Finally, this era is the current era of hockey that the NHL is in. The league has now been expanded to 32 teams with a push for stricter officiating to increase scoring and speed of game. Also, the league has introduced hard salary cap for each team to follow, currently sitting at a maximum of \$95.5 million per team.
+
+After creating these eras as a feature in the dataset, this column will need to be made an ordered factor to ensure that the different eras will be treated as a timeline in order to model player performance across eras. Additionally, any additional NA values will be dropped from points to help account for players that were drafted before 2015 that are still currently active in the NHL.
+
+### Statistical Methods and Justification
+
+The two methods that will be employed for this research project are:
+
+1.  Multiple Linear Regression
+
+2.  Random Forests
+
+#### Multiple Linear Regression Model
+
+The first statistical method that will be used for the project is a multiple linear regression model. The use of this model is ideal since it will provide information of the overall trends of how players perform in relation to their draft position throughout the different eras of the NHL. In this model, player performance, measured using career points, is the response variable, and the predictors will include draft position and categorical indicators for each NHL era. This structure makes it possible to estimate how much value teams typically receive from a given draft slot and whether that expected value differs between eras.
+
+With this method, I hope to answer two of my research questions: How has the relationship between draft position and a player’s performance changes across eras and are teams getting more or less value from their picks over time relative to the expected performance at each draft slot?
+
+#### Random Forests Model
+
+The second statistical method that will be used in this analysis will be random forests. Random forests will be useful in determining which teams are consistently drafting plays that outperform their overall draft pick position.
+
+This will be done by training the model to predict a player’s performance, such as points, based off of other variables, like draft position, then finding the difference between the expected value from the model and the actual value of the players. These values will then be aggregated based on teams, leading to the conclusion that teams with the highest positive values are those that are more consistent in picking players who outperform and vice versa.
+
+Using random forests will also allow for the assessment of variable importance and determine the predictors that have the most significant contribution to the model ad prediction of player performance.
+
+This method will be useful in answering the research questions: Are teams getting more or less value from their picks over time relative to the expected performance at each draft slot and which teams are consistently drafting players who outperform their expected value based off of draft pick?
+
+### Software and Packages Used
+
+All analyses for this report were conducted using R, which is a beneficial programming language for data analysis, modeling, and research.
+
+There were several packages employed for this project to assist in data visualization and model building. These packages include:
+
+1.  **tidyverse:** This collection of packages (including dplyr, ggplot2, and others) was used for data wrangling, cleaning, and visualization. The tidyverse package provides a consistent syntax and workflow, making it easier to manipulate player data, create summary tables, and generate exploratory graphics.
+
+2.  **tidymodels:** This package supported the modeling pipeline, including data preprocessing, model specification, and performance evaluation. Tidymodels integrates naturally with tidyverse, allowing for a streamlined workflow from raw data to fitted models. It was used to build and tune the multiple linear regression model as well as the random forest model in the project.
+
+3.  **vip:** The vip package was used to compute and visualize variable importance for the machine learning models. This helped identify which predictors contributed most to model performance and supported interpretation of the random forest results.
+
+Together, these tools provided a reproducible and efficient environment for data preparation, modeling, and interpretation throughout the project.
+
+## Results
+
+### Exploratory Data Analysis
+
+#### Data Structure
+
+In this dataset, there are 12,250 observations and 23 variables. With glimpse, it can be observed that most of the variables are numbers with some character values, such as columns containing team and player name. Also, the summarise functions demonstrates that there are a number of missing values throughout the dataset that need to be considered moving forward.
+
+After looking at the dataset, it can be concluded that these missing values come from players that were drafted more recently. This data only includes career totals; therefore, since recently drafted players are still active in the league, there are no values for them yet. Due to this, the dataset is filtered to only include those drafted before 2015 to account for the missing values.
+
+Some things to explore to start off this data analysis is how draft positions correlates to a player's stats, such as their points and plus/minus. Also, it may be interesting to explore what positions were drafted what years to see if there are patterns in when certain positions were more popular in the draft.
+
+
+```{r}
+#| layout-ncol: 3
+data |> 
+  filter(year<=2015) |>
+  ggplot(aes(x = overall_pick, y = points)) +
+    geom_point() +
+    geom_smooth(color = "blue") +
+    labs(title = "Draft Position vs Points Performance")
+
+data |> 
+  filter(year<=2015) |>
+  ggplot(aes(x = overall_pick, y = plus_minus)) +
+    geom_point() +
+    geom_smooth(color = "blue") +
+    labs(title = "Pick vs Plus/Minus")
+
+data |>
+  group_by(year, position) |>
+  summarise(n = n(), .groups = "drop") |>
+  group_by(year) |>
+  mutate(prop = n / sum(n)) |>
+  ggplot(aes(x = year, y = prop, fill = position)) +
+  geom_area(alpha = 0.8) +
+  labs(title = "Proportion of Positions Drafted by Year",
+       y = "Proportion of Draft Class",
+       x = "Draft Year",
+       fill = "Position")
+```
+
+The first plot depicts the relationship between a player's overall pick number in the draft and the amount of points, the sum of goals and assists, they earned in their career. It can be seen that player's who were drafted first are getting more points, and those drafted later on, have less points. However, it should be noted that there are some outliers to possibly explore.
+
+The second plot reveals that there was a large variation for a player's plus/minus when they were drafted in an earlier round. As the pick number increases, there seems to be less variance in performance. This is because earlier picks are usually given more playing time, which can either be a negative or positive for performance, while lower drafted players are given less time to have their plus/minus impacted.
+
+The third plot shows that there is an obvious dominance of defense and centers. This is because these two positions are often seen as the positions that offer the most support to the team and can have the greatest impact overall. Also, there is variation among wingers and goalies, which are drafted significantly less.
+
+### Primary Analysis
+
+#### Question 1
+How has the relationship between draft position and a player's performance changed across eras?
+
+```{r}
+set.seed(1234)
+# question 1 model
+
+era_data = data |> 
+  filter(year <= 2015) |>
+  mutate(
+    era = case_when(
+      year < 1994 ~ "1963 - 1993",
+      year < 2005 ~ "1994 - 2004",
+      year <= 2015 ~ "2005 - 2015"
+    )
+  ) |> mutate(era = factor(era, levels = c("1963 - 1993", "1994 - 2004", "2005 - 2015"))) |>
+  select(points, team, overall_pick, era)
+
+era_rec = recipe(points ~ ., data = era_data) |>
+  step_dummy(all_nominal_predictors(), -era) |>
+  step_zv(all_predictors()) |>
+  step_normalize(all_numeric_predictors())
+
+era_dat = era_rec |>
+  prep(training_data = era_data) |>
+  bake(new_data = NULL)
+
+era_model = linear_reg() |>
+  set_engine("lm") |>
+  set_mode("regression")
+
+era_fit = era_model |>
+  fit(points ~ overall_pick + era, data = era_dat)
+```
+
+##### Model Summary
+```{r}
+era_fit |> tidy()
+```
+
+From the tidy() output, the intercept shows that a first‑overall pick in the Expansion Era was expected to score 132 career points. Each additional draft position lowers expected points by 66.7. Players drafted in the Dead Puck Era scored about 21.5 fewer points than those in the Expansion Era, holding draft position constant, and players in the Modern Era scored about 53.3 fewer.
+
+#### Model Statistics
+```{r}
+era_fit |> glance()
+```
+
+The model’s adjusted R² is 0.0773, meaning it explains 7.73% of the variance. The similar R² and adjusted R² values suggest minimal overfitting. The large F‑statistic (138) and small p‑values indicate that overall pick and era are significant predictors.
+
+
+```{r, warning=FALSE}
+ggplot(era_data, aes(overall_pick, points, color = era)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm") +
+  labs(title = "Figure: Overall Draft Pick vs Player Performance by Era", x = "Overall Draft Pick", y = "Points") +
+  scale_color_manual(labels = c("Expansion Era", "Dead Puck Era", "Modern Era"), values = c("blue", "red", "green"))
+```
+  
+This plot extends the earlier EDA figure by grouping players by era. Across all eras, there is a slight negative relationship between draft position and career points, meaning earlier picks generally perform better than later ones. While the differences between eras are not dramatic, the Expansion Era shows the steepest decline in points as draft position increases, followed by the Modern Era, and then the Dead Puck Era. This suggests that draft position mattered most in earlier decades, even though it remains an important predictor today.
+
+#### Question 2
+Are teams getting more or less value from their picks over time relative to the expected performance at each draft slot?
+
+```{r}
+# question 2 model
+
+value_data = data |> 
+  filter(year <= 2015) |>
+  mutate(
+    era = case_when(
+      year < 1994 ~ "1963 - 1993",
+      year < 2005 ~ "1994 - 2004",
+      year <= 2015 ~ "2005 - 2015"
+    )
+  ) |> mutate(era = factor(era, levels = c("1963 - 1993", "1994 - 2004", "2005 - 2015"))) |>
+  drop_na(points)
+
+split = initial_split(value_data, prop = 0.8)
+train = training(split)
+test = testing(split)
+
+value_rec = recipe(points ~ overall_pick + era, data = value_data) |>
+  step_dummy(all_nominal_predictors())
+
+value_model = rand_forest(trees = 500) |>
+  set_mode("regression") |>
+  set_engine("ranger")
+
+value_wf = workflow() |>
+  add_recipe(value_rec) |>
+  add_model(value_model)
+
+value_fit = fit(value_wf, data = train)
+
+test = test |> mutate(expected_points = predict(value_fit, new_data = test)$.pred)
+
+test = test |>
+  mutate(performance = points - expected_points)
+
+test = test |>
+  mutate(era_num = as.numeric(era))
+
+trend_model = lm(performance ~ era_num, data = test)
+```
+
+##### Expected Performance
+```{r}
+coef(summary(trend_model))
+cat("R-squared:", summary(trend_model)$r.squared)
+```
+
+The coefficient for era_num indicates that each successive era is associated with an expected 20.8 point decrease in player performance. This suggests that players from more recent eras have generally underperformed compared to those from earlier eras.
+
+Because the p‑value for era_num is below 0.05, era is a statistically significant predictor. However, the model’s R‑squared is only about 0.5%, meaning the trend explains very little of the overall variation. Even though the downward pattern exists, most of the differences in career points are due to noise and individual variability rather than era alone.
+
+#### Figure: Mean Performance by Era
+```{r}
+test |> 
+  group_by(era) |> 
+  summarize(mean_perf = mean(performance)) |> 
+  ggplot(aes(era, mean_perf)) +
+  geom_col() +
+  labs(title = "Era vs Mean Performance", x = "Era", y = "Mean Performance")
+```
+
+The bar chart also demonstrates the clear difference that is present from the Expansion Era (1963-1993) to the Dead Puck Era (1994-2004), and then the another small decrease into the Modern Era (2005-Present).
+
+
+#### Question 3
+Which teams consistently draft players who outperform their expected value based on draft pick?
+
+```{r}
+# question 3 model
+
+rf_data = data |> 
+  filter(year <= 2015) |>
+  mutate(
+    era = case_when(
+      year < 1994 ~ "1963 - 1993",
+      year < 2005 ~ "1994 - 2004",
+      year <= 2015 ~ "2005 - 2015"
+    )
+  ) |> mutate(era = factor(era, levels = c("1963 - 1993", "1994 - 2004", "2005 - 2015"))) |>
+  drop_na(points)
+
+split2 <- initial_split(rf_data, prop = 0.8)
+train2 <- training(split2)
+test2  <- testing(split2)
+
+rf_rec <- recipe(points ~ overall_pick + era, data = rf_data) |>
+  step_dummy(all_nominal_predictors())
+
+rf_model <- rand_forest(trees = 500) |>
+  set_mode("regression") |>
+  set_engine("ranger", importance = "impurity")
+
+rf_wf = workflow() |>
+  add_recipe(rf_rec) |>
+  add_model(rf_model)
+
+rf_fit = fit(rf_wf, data = train2)
+
+preds = rf_fit |> predict(rf_data) |>
+  bind_cols(rf_data)
+
+preds = preds |>
+  mutate(performance = points - .pred)
+
+team_performance = preds |>
+  group_by(team) |>
+  summarise(mean_performance = mean(performance)) |>
+  arrange(desc(mean_performance))
+```
+
+
+##### Top and Bottom Performing Teams
+```{r}
+#| layout-ncol: 2
+head(team_performance)
+tail(team_performance)
+```
+
+Based on the tibbles given, it can be determined that the teams who are the most efficient in draft strategy and obtaining players with outstanding performance are the Detroit Red Wings, Ottawa Senators, and San Jose Sharks. On the other hand, teams that have struggled to draft players with significant performances are the Cleveland Barons, Oakland Seals, and Arizona Coyotes.
+
+##### Figure: Mean Team Performance
+```{r}
+top10 <- team_performance |> slice_max(mean_performance, n = 10)
+bottom10 <- team_performance |> slice_min(mean_performance, n = 10)
+
+combined <- bind_rows(top10, bottom10)
+
+ggplot(combined, aes(x = reorder(team, mean_performance), y = mean_performance)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "Team",
+       y = "Mean Overperformance")
+```
+
+The bar chart also demonstrates a clear divide between the teams that have players who are overperforming compared to those who are underperforming, demonstrating the difference in histories for each team.
+
+### Model Diagnostics
+
+#### Regression Model
+
+##### Residuals and Q-Q Plots
+
+```{r}
+#| layout-ncol: 2
+plot(era_fit$fit, which = 1)
+plot(era_fit$fit, which = 2)
+```
+
+The residual plot shows a funnel shape, suggesting mild heteroskedasticity. The Q‑Q plot demonstrates a deviation from normality in the tail, which is expected given the presence of extreme outliers. Despite this deviation, the model is still adequate for describing the broader trends that the first research question is trying to answer.
+
+#### Random Forest + Regression
+
+##### Residuals and Q-Q Plots
+
+
+```{r}
+#| layout-ncol: 2
+plot(trend_model, which = 1)
+plot(trend_model, which = 2)
+```
+
+Based on the residuals plot, the spread of residuals is not constant. The plot shows a wider vertical spread of residuals at some fitted values, suggesting mild heteroskedasticity. This is expected here because player performance varies widely, and the performance metric does contain extreme over and under performers. The Q‑Q plot for the trend model shows noticeable deviations from normality in the tails. This is again expected because NHL performance data includes extreme cases, such as players who barely played and players who had break out performances that then became star players.
+
+```{r}
+vip(rf_fit, num_features = 15) +
+  labs(title = "Variable Importance from RF")
+```
+
+Variable importance indicates that overall_pick is clearly the most significant predictor for career performance. The era predictors in the figure demonstrate that era does not influence career performance as much as draft pick, suggesting that no matter the era, draft pick will continue to stay as the dominate predictor.
+
+### Sensitivity Analysis
+
+#### Removing Extreme Outliers
+
+Starting off, for the sensitivity analysis, extreme outliers, such as players with a performance of greater than or less than 500, will be removed from the data to determine if the large magnitude of these values will have an effect on the regression model.
+
+```{r}
+test_filtered = test |>
+  filter(abs(performance) <= 500)
+
+trend_model_filtered = lm(performance ~ era_num, data = test_filtered)
+
+coef(summary(trend_model_filtered))
+cat("R-squared:", summary(trend_model_filtered)$r.squared)
+```
+
+The coefficient for era shifts from –20.827 to 4.947 once extreme outliers are removed, and the p‑value rises to 0.371, indicating the effect is no longer statistically significant. This shows that outliers had a strong influence on the original model. Without them, there is essentially no relationship between era and performance, so the claim that teams receive less value in recent eras is weak and should be interpreted cautiously.
+
+#### Changing Number of Trees in Random Forest
+
+Next, the random forest model for the third research question will be reran using both 300 and 800 trees to compare the results to the original model that used 500 trees. The goal of this analysis is to determine whether changing the number of trees will have an effect on the output of which teams are top performers and teams that are struggling.
+
+```{r}
+rf_model_300 = rand_forest(trees = 300) |>
+  set_engine("ranger") |>
+  set_mode("regression")
+
+rf_model_800 = rand_forest(trees = 800) |>
+  set_engine("ranger") |>
+  set_mode("regression")
+
+rf_fit_300 = fit(workflow() |>
+                   add_recipe(rf_rec) |>
+                   add_model(rf_model_300), data = train2)
+
+rf_fit_800 = fit(workflow() |>
+                   add_recipe(rf_rec) |>
+                   add_model(rf_model_800), data = train2)
+
+preds_300 = rf_fit_300 |>
+  predict(rf_data) |>
+  bind_cols(rf_data) |>
+  mutate(perf = points - .pred)
+
+preds_800 = rf_fit_800 |>
+  predict(rf_data) |>
+  bind_cols(rf_data) |>
+  mutate(perf = points - .pred)
+
+team_rank_300 = preds_300 |>
+  group_by(team) |>
+  summarize(mean_perf = mean(perf)) |>
+  arrange(desc(mean_perf))
+
+team_rank_800 = preds_800 |>
+  group_by(team) |>
+  summarize(mean_perf = mean(perf)) |>
+  arrange(desc(mean_perf))
+```
+
+```{r}
+#| layout-ncol: 2
+head(team_rank_300)
+head(team_rank_800)
+```
+
+Using 300 or 800 trees instead of 500 produced nearly identical team rankings. The top‑performing teams (Detroit, Ottawa, San Jose) and bottom‑performing teams (Cleveland, Oakland, Arizona) remained in the same positions. This demonstrates that the team‑level conclusions will not change for this model when the number of trees are altered.
+
+## Discussion
+
+### Interpretation of Results
+
+#### Question 1 
+
+The regression results show that earlier draft picks generally end up with more career points, and this pattern holds across all eras. A first‑overall pick in the Expansion Era was expected to score around 132 points, and each increase in draft position lowered expected points by about 66.7. Players in the Dead Puck Era and Modern Era also scored fewer points than those in the Expansion Era, even after accounting for draft position. All predictors were statistically significant, so the differences across eras are real.
+
+The model only explains about 7 or 8% of the variation, which is low but not surprising since NHL careers vary a lot due to injuries, team situations, and playing time. The plot by era shows the same trend: earlier picks perform better, and the relationship was strongest in the Expansion Era. This suggests that draft position mattered a bit more when the league was smaller and talent was less spread out.
+
+Overall, even though the model doesn’t explain everything, it still shows a clear pattern that earlier picks tend to have better careers.
+
+#### Question 2
+
+The trend model suggested that each newer era is linked to about a 20 point drop in performance. This made it look like players from recent eras were underperforming compared to earlier decades. The p‑value was below 0.05, so the effect was statistically significant, but the R‑squared was only about 0.5%, meaning era alone doesn’t explain much.
+
+The bar chart also showed a drop from the Expansion Era to the Dead Puck Era and a smaller drop into the Modern Era. This lines up with how the league changed: the Expansion Era had a big talent boost, while the Dead Puck Era was known for low scoring and defensive systems.
+
+However, once extreme outliers were removed, the era effect basically disappeared. The coefficient flipped direction and became non‑significant. This means the original trend was mostly driven by a few players with unusually high or low point totals. Because of this, the idea that teams get less value from draft picks in recent eras isn’t very strong and should be interpreted carefully.
+
+#### Question 3
+
+Based on the tibbles given, it can be determined that the teams who are the most efficient in draft strategy and obtaining players with outstanding performance are the Detroit Red Wings, Ottawa Senators, and San Jose Sharks. On the other hand, teams that struggled to draft players with significant performances are the Cleveland Barons, Oakland Seals, and Arizona Coyotes. This makes sense since most of these teams are no longer part of the league, either from being bought or moved to another city, likely due to poor performance as demonstrated above.
+
+The bar chart also demonstrates a clear divide between the teams that have players who are overperforming compared to those who are underperforming, demonstrating the difference in histories for each team.
+
+#### Limitations and Assumptions
+
+There are several limitations to keep in mind. First, the final dataset used only includes players drafted before 2015, so it doesn’t capture recent drafting trends or how modern analytics have changed scouting. Second, using career points as the main performance measure favors offensive players and doesn’t fully represent defensemen or goalies. Third, the regression models assume linear relationships and independent errors, which don’t always hold in sports data.
+
+The random forest model also depends on the variables available. Important factors like coaching, team development systems, or injuries aren’t included, which limits how much the model can explain. The sensitivity analysis showed that outliers have a big impact, which means some results are less stable than they appear.
+
+#### Ethical Considerations
+
+Even though this project looks at players as data points, it’s important to remember that these numbers represent real people with careers shaped by many factors outside of their control. Using only point totals can undervalue players who contribute in other ways. Also, judging teams based only on draft outcomes can oversimplify decisions that involve scouting, development, and long‑term planning. Being aware of these limitations helps avoid unfair or overly harsh conclusions.
+
+#### Future Directions
+
+Future work could include more detailed performance metrics, such as time on ice, defensive stats, or advanced analytics like expected goals. Adding salary data could help measure draft value in terms of cost efficiency. Another improvement would be modeling player development over time instead of just career totals. Finally, including drafts after 2015 would allow for studying how recent rule changes, analytics, and international scouting have affected drafting success.
+
+## Conclusions
+
+This project examined how NHL draft position relates to long‑term player performance, how that relationship has changed across eras, and which teams have historically drafted most efficiently. Across all analyses, one consistent finding emerged: earlier draft picks tend to produce better career outcomes. This pattern held in every era of NHL history, although it was strongest in the Expansion Era when the league was smaller and talent was less evenly distributed. While the regression model explained only a small amount of the variation in player performance, it still showed clear and meaningful trends that support long‑standing assumptions about the value of early draft selections.
+
+The analysis of performance across eras suggests a slight decline in average player output over time, but this trend was weak and heavily influenced by extreme outliers. Once those outliers were removed, the era effect became statistically insignificant. This indicates that the apparent decline in performance is not a consistent league‑wide pattern, but rather the result of a few unusually high‑impact players from earlier decades. As a result, claims that teams are getting less value from draft picks in recent eras cannot be concluded fully.
+
+The team‑level results highlights substantial differences in drafting efficiency across franchises. Teams like the Detroit Red Wings, Ottawa Senators, and San Jose Sharks consistently selects players who outperforms expectations, while teams such as the Cleveland Barons, Oakland Seals, and Arizona Coyotes tends to underperform. These patterns reflect broader organizational strengths and weaknesses, including scouting quality, player development systems, and long‑term stability. The findings show that drafting success is not evenly distributed and that some teams have historically gained more value from their picks than others.
+
+Taken together, these results show that draft position remains the strongest and most reliable predictor of NHL career performance, even though many other factors influence individual outcomes. The broader implication is that while analytics can help teams make more informed decisions, drafting will always involve uncertainty. Player development, team fit, and organizational support play major roles that cannot be fully captured by draft data alone. Future research could expand on this work by including more detailed performance metrics, modeling player development over time, or incorporating salary information to evaluate draft value in economic terms. As the NHL continues to evolve, combining traditional scouting with data‑driven approaches will remain essential for teams looking to gain an edge in the draft.
+
+## References
+
+NHL Draft Hockey Player Data (1963-2022). (2022). Retrieved from https://www.kaggle.com/datasets/mattop/nhl-draft-hockey-player-data-1963-2022/code 
