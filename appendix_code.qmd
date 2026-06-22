@@ -1,0 +1,278 @@
+---
+title: "Sports Analytics Capstone Appendix"
+format: html
+editor: visual
+---
+
+## Appendix
+
+### Reproducible Code
+
+```{r}
+#| echo: true
+#| eval: false
+
+#preprocessing code
+library(tidyverse)
+library(tidymodels)
+library(vip)
+
+data = read_csv("~/Downloads/nhldraft.csv")
+
+#EDA code
+dim(data)
+
+glimpse(data)
+
+summary(data$points)
+
+data |>
+  summarise(across(everything(), ~sum(is.na(.))))
+
+data |> 
+  filter(year<=2015) |>
+  ggplot(aes(x = overall_pick, y = points)) +
+    geom_point() +
+    geom_smooth(color = "blue") +
+    labs(title = "Draft Position vs Points Performance")
+
+data |> 
+  filter(year<=2015) |>
+  ggplot(aes(x = overall_pick, y = plus_minus)) +
+    geom_point() +
+    geom_smooth(color = "blue")
+
+data |>
+  group_by(year, position) |>
+  summarise(n = n(), .groups = "drop") |>
+  group_by(year) |>
+  mutate(prop = n / sum(n)) |>
+  ggplot(aes(x = year, y = prop, fill = position)) +
+  geom_area(alpha = 0.8) +
+  labs(title = "Proportion of Positions Drafted by Year",
+       y = "Proportion of Draft Class",
+       x = "Draft Year",
+       fill = "Position")
+
+#modeling code
+
+##model 1
+set.seed(1234)
+
+era_data = data |> 
+  filter(year <= 2015) |>
+  mutate(
+    era = case_when(
+      year < 1994 ~ "1963 - 1993",
+      year < 2005 ~ "1994 - 2004",
+      year <= 2015 ~ "2005 - 2015"
+    )
+  ) |> mutate(era = factor(era, levels = c("1963 - 1993", "1994 - 2004", "2005 - 2015"))) |>
+  select(points, team, overall_pick, era)
+
+era_rec = recipe(points ~ ., data = era_data) |>
+  step_dummy(all_nominal_predictors(), -era) |>
+  step_zv(all_predictors()) |>
+  step_normalize(all_numeric_predictors())
+
+era_dat = era_rec |>
+  prep(training_data = era_data) |>
+  bake(new_data = NULL)
+
+era_model = linear_reg() |>
+  set_engine("lm") |>
+  set_mode("regression")
+
+era_fit = era_model |>
+  fit(points ~ overall_pick + era, data = era_dat)
+
+era_fit |> tidy()
+
+era_fit |> glance()
+
+ggplot(era_data, aes(overall_pick, points, color = era)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm") +
+  labs(title = "Overall Draft Pick vs Player Performance by Era", x = "Overall Draft Pick", y = "Points") +
+  scale_color_manual(labels = c("Expansion Era", "Dead Puck Era", "Modern Era"), values = c("blue", "red", "green"))
+
+##model 2
+
+value_data = data |> 
+  filter(year <= 2015) |>
+  mutate(
+    era = case_when(
+      year < 1994 ~ "1963 - 1993",
+      year < 2005 ~ "1994 - 2004",
+      year <= 2015 ~ "2005 - 2015"
+    )
+  ) |> mutate(era = factor(era, levels = c("1963 - 1993", "1994 - 2004", "2005 - 2015"))) |>
+  drop_na(points)
+
+split = initial_split(value_data, prop = 0.8)
+train = training(split)
+test = testing(split)
+
+value_rec = recipe(points ~ overall_pick + era, data = value_data) |>
+  step_dummy(all_nominal_predictors())
+
+value_model = rand_forest(trees = 500) |>
+  set_mode("regression") |>
+  set_engine("ranger")
+
+value_wf = workflow() |>
+  add_recipe(value_rec) |>
+  add_model(value_model)
+
+value_fit = fit(value_wf, data = train)
+
+test = test |> mutate(expected_points = predict(value_fit, new_data = test)$.pred)
+
+test = test |>
+  mutate(performance = points - expected_points)
+
+test = test |>
+  mutate(era_num = as.numeric(era))
+
+trend_model = lm(performance ~ era_num, data = test)
+summary(trend_model)
+
+team_trend = test |>
+  group_by(team, era_num) |>
+  summarize(mean_performance = mean(performance), .groups = "drop")
+
+team_model = lm(mean_performance ~ era_num, data = team_trend)
+summary(team_model)
+
+test |> 
+  group_by(era) |> 
+  summarize(mean_perf = mean(performance)) |> 
+  ggplot(aes(era, mean_perf)) +
+  geom_col() +
+  labs(title = "Era vs Mean Performance", x = "Era", y = "Mean Performance")
+
+##model 3
+
+rf_data = data |> 
+  filter(year <= 2015) |>
+  mutate(
+    era = case_when(
+      year < 1994 ~ "1963 - 1993",
+      year < 2005 ~ "1994 - 2004",
+      year <= 2015 ~ "2005 - 2015"
+    )
+  ) |> mutate(era = factor(era, levels = c("1963 - 1993", "1994 - 2004", "2005 - 2015"))) |>
+  drop_na(points)
+
+split2 <- initial_split(rf_data, prop = 0.8)
+train2 <- training(split2)
+test2  <- testing(split2)
+
+rf_rec <- recipe(points ~ overall_pick + era, data = rf_data) |>
+  step_dummy(all_nominal_predictors())
+
+rf_model <- rand_forest(trees = 500) |>
+  set_mode("regression") |>
+  set_engine("ranger", importance = "impurity")
+
+rf_wf = workflow() |>
+  add_recipe(rf_rec) |>
+  add_model(rf_model)
+
+rf_fit = fit(rf_wf, data = train2)
+
+preds = rf_fit |> predict(rf_data) |>
+  bind_cols(rf_data)
+
+preds = preds |>
+  mutate(performance = points - .pred)
+
+team_performance = preds |>
+  group_by(team) |>
+  summarise(mean_performance = mean(performance)) |>
+  arrange(desc(mean_performance))
+
+team_performance
+
+tail(team_performance)
+
+ggplot(team_performance, aes(x = reorder(team, mean_performance), y = mean_performance)) +
+  geom_col() +
+  coord_flip()
+
+#model diagnostics
+
+plot(era_fit$fit, which = 1)
+plot(era_fit$fit, which = 2)
+
+plot(trend_model, which = 1)
+plot(trend_model, which = 2)
+
+vip(rf_fit, num_features = 15) +
+  labs(title = "Variable Importance from Random Forest")
+
+#sensitivity analysis
+
+test_filtered = test |>
+  filter(abs(performance) <= 500)
+
+trend_model_filtered = lm(performance ~ era_num, data = test_filtered)
+
+summary(trend_model_filtered)
+
+rf_model_300 = rand_forest(trees = 300) |>
+  set_engine("ranger") |>
+  set_mode("regression")
+
+rf_model_800 = rand_forest(trees = 800) |>
+  set_engine("ranger") |>
+  set_mode("regression")
+
+rf_fit_300 = fit(workflow() |>
+                   add_recipe(rf_rec) |>
+                   add_model(rf_model_300), data = train2)
+
+rf_fit_800 = fit(workflow() |>
+                   add_recipe(rf_rec) |>
+                   add_model(rf_model_800), data = train2)
+
+preds_300 = rf_fit_300 |>
+  predict(rf_data) |>
+  bind_cols(rf_data) |>
+  mutate(perf = points - .pred)
+
+preds_800 = rf_fit_800 |>
+  predict(rf_data) |>
+  bind_cols(rf_data) |>
+  mutate(perf = points - .pred)
+
+team_rank_300 = preds_300 |>
+  group_by(team) |>
+  summarize(mean_perf = mean(perf)) |>
+  arrange(desc(mean_perf))
+
+team_rank_800 = preds_800 |>
+  group_by(team) |>
+  summarize(mean_perf = mean(perf)) |>
+  arrange(desc(mean_perf))
+
+team_rank_300
+
+team_rank_800
+```
+
+### Data Dictionary
+
+```{r}
+#| echo: false
+#| eval: true
+
+data_dictionary <- data.frame(
+  Variable = names(data),
+  Type = sapply(data, class)
+)
+
+data_dictionary
+
+```
+
